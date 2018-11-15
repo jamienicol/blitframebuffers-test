@@ -16,9 +16,37 @@
 
 #include "gles3jni.h"
 #include <EGL/egl.h>
+#include <vector>
 
 #define STR(s) #s
 #define STRV(s) STR(s)
+
+struct Texture {
+  Texture(int width, int height, int layers)
+    : width(width), height(height)
+  {
+    glGenTextures(1, &id);
+    glBindTexture(GL_TEXTURE_2D_ARRAY, id);
+
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA8, width, height, layers);
+
+    fbos.resize(layers);
+    glGenFramebuffers(layers, fbos.data());
+    for (int i = 0; i < layers; i++) {
+      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbos[i]);
+      glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER,
+                                GL_COLOR_ATTACHMENT0,
+                                id,
+                                0,
+                                i);
+    }
+  }
+
+  GLuint id;
+  int width;
+  int height;
+  std::vector<GLuint> fbos;
+};
 
 class RendererES3: public Renderer {
 public:
@@ -30,6 +58,9 @@ private:
     virtual void draw();
 
     const EGLContext mEglContext;
+
+  Texture* src;
+  Texture* dst;
 };
 
 Renderer* createES3Renderer() {
@@ -47,22 +78,85 @@ RendererES3::RendererES3()
 }
 
 bool RendererES3::init() {
-
     ALOGV("Using OpenGL ES 3.0 renderer");
+
+    src = new Texture(256, 256, 3);
+    dst = new Texture(256, 256, 4);
+
+    // Upload red to src layer 0
+    std::vector<unsigned char> buf(src->width * src->height * 4);
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0xFF;
+      buf[i+1] = 0x00;
+      buf[i+2] = 0x00;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 0, src->width, src->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+
+    // Upload green to src layer 1
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0x00;
+      buf[i+1] = 0xFF;
+      buf[i+2] = 0x00;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 1, src->width, src->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+
+    // Upload blue to src layer 2
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0x00;
+      buf[i+1] = 0x00;
+      buf[i+2] = 0xFF;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 2, src->width, src->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+
+
+    // Blit from src to dest
+    for (int i = 0; i < src->fbos.size(); i++) {
+      glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
+      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst->fbos[i]);
+      glBlitFramebuffer(0, 0, src->width, src->height,
+                        0, 0, dst->width, dst->height,
+                        GL_COLOR_BUFFER_BIT,
+                        GL_NEAREST);
+    }
+
     return true;
 }
 
 RendererES3::~RendererES3() {
-    /* The destructor may be called after the context has already been
-     * destroyed, in which case our objects have already been destroyed.
-     *
-     * If the context exists, it must be current. This only happens when we're
-     * cleaning up after a failed init().
-     */
-    if (eglGetCurrentContext() != mEglContext)
-        return;
+  if (eglGetCurrentContext() != mEglContext)
+    return;
 
 }
 
 void RendererES3::draw() {
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+    int y = 0;
+    
+    for (int i = 0; i < src->fbos.size(); i++) {
+      glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
+      glBlitFramebuffer(0, 0, src->width, src->height,
+                        i * src->width, y, (i + 1) * src->width, y + src->height,
+                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
+    y += src->height;
+
+    for (int i = 0; i < dst->fbos.size(); i++) {
+      glBindFramebuffer(GL_READ_FRAMEBUFFER, dst->fbos[i]);
+      glBlitFramebuffer(0, 0, dst->width, dst->height,
+                        i * dst->width, y, (i + 1) * dst->width, y + dst->height,
+                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
+    }
 }
