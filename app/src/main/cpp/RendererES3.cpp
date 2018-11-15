@@ -137,6 +137,14 @@ static void blit_src_to_renderbuffer_then_copytexsubimage(Texture* src, Texture*
   }
 }
 
+static void copy_image_sub_data(Texture* src, Texture* dst) {
+  glCopyImageSubData(src->id, GL_TEXTURE_2D_ARRAY, 0,
+                     0, 0, 0,
+                     dst->id, GL_TEXTURE_2D_ARRAY, 0,
+                     0, 0, 0,
+                     src->width, src->height, src->fbos.size());
+}
+
 class RendererES3: public Renderer {
 public:
     RendererES3();
@@ -152,6 +160,7 @@ private:
   Texture* dst_blitframebuffer;
   Texture* dst_copytexsubimage;
   Texture* dst_renderbuffer_copytexsubimage;
+  Texture* dst_copyimagesubdata;
 };
 
 Renderer* createES3Renderer() {
@@ -175,11 +184,13 @@ bool RendererES3::init() {
     dst_blitframebuffer = new Texture(256, 256, 3);
     dst_copytexsubimage = new Texture(256, 256, 3);
     dst_renderbuffer_copytexsubimage = new Texture(256, 256, 3);
+    dst_copyimagesubdata = new Texture(256, 256, 3);
 
     upload_rgb_layers(src);
     blit_src_to_dst(src, dst_blitframebuffer);
     bind_src_then_copytexsubimage(src, dst_copytexsubimage);
     blit_src_to_renderbuffer_then_copytexsubimage(src, dst_renderbuffer_copytexsubimage);
+    copy_image_sub_data(src, dst_copyimagesubdata);
 
     return true;
 }
@@ -206,4 +217,5 @@ void RendererES3::draw() {
     draw_layers(dst_blitframebuffer, 256);
     draw_layers(dst_copytexsubimage, 512);
     draw_layers(dst_renderbuffer_copytexsubimage, 768);
+    draw_layers(dst_copyimagesubdata, 1024);
 }
