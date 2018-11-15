@@ -18,9 +18,6 @@
 #include <EGL/egl.h>
 #include <vector>
 
-#define STR(s) #s
-#define STRV(s) STR(s)
-
 struct Texture {
   Texture(int width, int height, int layers)
     : width(width), height(height)
@@ -48,10 +45,10 @@ struct Texture {
   std::vector<GLuint> fbos;
 };
 
+// Uploads red to layer 0, green to layer 1, and blue to layer 2
 static void upload_rgb_layers(Texture* tex) {
     std::vector<unsigned char> buf(tex->width * tex->height * 4);
 
-    // Upload red to layer 0
     for (int i = 0; i < buf.size(); i+=4) {
       buf[i]   = 0xFF;
       buf[i+1] = 0x00;
@@ -63,7 +60,6 @@ static void upload_rgb_layers(Texture* tex) {
                     0, 0, 0, tex->width, tex->height, 1,
                     GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
 
-    // Upload green to layer 1
     for (int i = 0; i < buf.size(); i+=4) {
       buf[i]   = 0x00;
       buf[i+1] = 0xFF;
@@ -75,7 +71,6 @@ static void upload_rgb_layers(Texture* tex) {
                     0, 0, 1, tex->width, tex->height, 1,
                     GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
 
-    // Upload blue to layer 2
     for (int i = 0; i < buf.size(); i+=4) {
       buf[i]   = 0x00;
       buf[i+1] = 0x00;
@@ -88,6 +83,8 @@ static void upload_rgb_layers(Texture* tex) {
                     GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
 }
 
+// Use glBlitFramebuffer to blit from each src layer to its respective
+// dst layer
 static void blit_src_to_dst(Texture* src, Texture* dst) {
   for (int i = 0; i < src->fbos.size(); i++) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
@@ -99,6 +96,8 @@ static void blit_src_to_dst(Texture* src, Texture* dst) {
   }
 }
 
+// Bind each src framebuffer, then use glCopyTexSubImage to copy data
+// to respective dst layer
 static void bind_src_then_copytexsubimage(Texture* src, Texture* dst) {
   glBindTexture(GL_TEXTURE_2D_ARRAY, dst->id);
   for (int i = 0; i < src->fbos.size(); i++) {
@@ -109,7 +108,8 @@ static void bind_src_then_copytexsubimage(Texture* src, Texture* dst) {
   }
 }
 
-
+// Blit each src layer to a temporary renderbuffer, then use
+// glCopyTexSubImage to copy to respective dst layer
 static void blit_src_to_renderbuffer_then_copytexsubimage(Texture* src, Texture* dst) {
   GLuint renderbuffer;
   glGenRenderbuffers(1, &renderbuffer);
@@ -137,6 +137,7 @@ static void blit_src_to_renderbuffer_then_copytexsubimage(Texture* src, Texture*
   }
 }
 
+// Use glCopyImageSubData to copy the whole of src in to dst
 static void copy_image_sub_data(Texture* src, Texture* dst) {
   glCopyImageSubData(src->id, GL_TEXTURE_2D_ARRAY, 0,
                      0, 0, 0,
@@ -147,14 +148,10 @@ static void copy_image_sub_data(Texture* src, Texture* dst) {
 
 class RendererES3: public Renderer {
 public:
-    RendererES3();
-    virtual ~RendererES3();
     bool init();
 
 private:
     virtual void draw();
-
-    const EGLContext mEglContext;
 
   Texture* src;
   Texture* dst_blitframebuffer;
@@ -170,11 +167,6 @@ Renderer* createES3Renderer() {
         return NULL;
     }
     return renderer;
-}
-
-RendererES3::RendererES3()
-:   mEglContext(eglGetCurrentContext())
-{
 }
 
 bool RendererES3::init() {
@@ -195,13 +187,7 @@ bool RendererES3::init() {
     return true;
 }
 
-RendererES3::~RendererES3() {
-  if (eglGetCurrentContext() != mEglContext)
-    return;
-
-}
-
-void draw_layers(Texture* tex, int y) {
+static void draw_layers(Texture* tex, int y) {
   for (int i = 0; i < tex->fbos.size(); i++) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, tex->fbos[i]);
     glBlitFramebuffer(0, 0, tex->width, tex->height,
