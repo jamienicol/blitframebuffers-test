@@ -48,6 +48,57 @@ struct Texture {
   std::vector<GLuint> fbos;
 };
 
+static void upload_rgb_layers(Texture* tex) {
+    std::vector<unsigned char> buf(tex->width * tex->height * 4);
+
+    // Upload red to layer 0
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0xFF;
+      buf[i+1] = 0x00;
+      buf[i+2] = 0x00;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 0, tex->width, tex->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+
+    // Upload green to layer 1
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0x00;
+      buf[i+1] = 0xFF;
+      buf[i+2] = 0x00;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 1, tex->width, tex->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+
+    // Upload blue to layer 2
+    for (int i = 0; i < buf.size(); i+=4) {
+      buf[i]   = 0x00;
+      buf[i+1] = 0x00;
+      buf[i+2] = 0xFF;
+      buf[i+3] = 0xFF;
+    }
+    glBindTexture(GL_TEXTURE_2D_ARRAY, tex->id);
+    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                    0, 0, 2, tex->width, tex->height, 1,
+                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
+}
+
+static void blit_layers(Texture* src, Texture* dst) {
+  for (int i = 0; i < src->fbos.size(); i++) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst->fbos[i]);
+    glBlitFramebuffer(0, 0, src->width, src->height,
+                      0, 0, dst->width, dst->height,
+                      GL_COLOR_BUFFER_BIT,
+                      GL_NEAREST);
+  }
+}
+
 class RendererES3: public Renderer {
 public:
     RendererES3();
@@ -83,53 +134,8 @@ bool RendererES3::init() {
     src = new Texture(256, 256, 3);
     dst = new Texture(256, 256, 4);
 
-    // Upload red to src layer 0
-    std::vector<unsigned char> buf(src->width * src->height * 4);
-    for (int i = 0; i < buf.size(); i+=4) {
-      buf[i]   = 0xFF;
-      buf[i+1] = 0x00;
-      buf[i+2] = 0x00;
-      buf[i+3] = 0xFF;
-    }
-    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
-                    0, 0, 0, src->width, src->height, 1,
-                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
-
-    // Upload green to src layer 1
-    for (int i = 0; i < buf.size(); i+=4) {
-      buf[i]   = 0x00;
-      buf[i+1] = 0xFF;
-      buf[i+2] = 0x00;
-      buf[i+3] = 0xFF;
-    }
-    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
-                    0, 0, 1, src->width, src->height, 1,
-                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
-
-    // Upload blue to src layer 2
-    for (int i = 0; i < buf.size(); i+=4) {
-      buf[i]   = 0x00;
-      buf[i+1] = 0x00;
-      buf[i+2] = 0xFF;
-      buf[i+3] = 0xFF;
-    }
-    glBindTexture(GL_TEXTURE_2D_ARRAY, src->id);
-    glTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
-                    0, 0, 2, src->width, src->height, 1,
-                    GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
-
-
-    // Blit from src to dest
-    for (int i = 0; i < src->fbos.size(); i++) {
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
-      glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst->fbos[i]);
-      glBlitFramebuffer(0, 0, src->width, src->height,
-                        0, 0, dst->width, dst->height,
-                        GL_COLOR_BUFFER_BIT,
-                        GL_NEAREST);
-    }
+    upload_rgb_layers(src);
+    blit_layers(src, dst);
 
     return true;
 }
