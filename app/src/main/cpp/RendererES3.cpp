@@ -88,7 +88,7 @@ static void upload_rgb_layers(Texture* tex) {
                     GL_RGBA, GL_UNSIGNED_BYTE, buf.data());
 }
 
-static void blit_layers(Texture* src, Texture* dst) {
+static void blit_src_to_dst(Texture* src, Texture* dst) {
   for (int i = 0; i < src->fbos.size(); i++) {
     glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, dst->fbos[i]);
@@ -96,6 +96,44 @@ static void blit_layers(Texture* src, Texture* dst) {
                       0, 0, dst->width, dst->height,
                       GL_COLOR_BUFFER_BIT,
                       GL_NEAREST);
+  }
+}
+
+static void bind_src_then_copytexsubimage(Texture* src, Texture* dst) {
+  glBindTexture(GL_TEXTURE_2D_ARRAY, dst->id);
+  for (int i = 0; i < src->fbos.size(); i++) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
+    glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                        0, 0, i,
+                        0, 0, src->width, src->height);
+  }
+}
+
+
+static void blit_src_to_renderbuffer_then_copytexsubimage(Texture* src, Texture* dst) {
+  GLuint renderbuffer;
+  glGenRenderbuffers(1, &renderbuffer);
+  glBindRenderbuffer(GL_RENDERBUFFER, renderbuffer);
+  glRenderbufferStorage(GL_RENDERBUFFER, GL_RGBA8, src->width, src->height);
+
+  GLuint fbo;
+  glGenFramebuffers(1, &fbo);
+  glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fbo);
+  glFramebufferRenderbuffer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, renderbuffer);
+
+  glBindTexture(GL_TEXTURE_2D_ARRAY, dst->id);
+
+  for (int i = 0; i < src->fbos.size(); i++) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
+    glBlitFramebuffer(0, 0, src->width, src->height,
+                      0, 0, src->width, src->height,
+                      GL_COLOR_BUFFER_BIT,
+                      GL_NEAREST);
+
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
+    glCopyTexSubImage3D(GL_TEXTURE_2D_ARRAY, 0,
+                        0, 0, i,
+                        0, 0, src->width, src->height);
   }
 }
 
@@ -111,7 +149,9 @@ private:
     const EGLContext mEglContext;
 
   Texture* src;
-  Texture* dst;
+  Texture* dst_blitframebuffer;
+  Texture* dst_copytexsubimage;
+  Texture* dst_renderbuffer_copytexsubimage;
 };
 
 Renderer* createES3Renderer() {
@@ -132,10 +172,14 @@ bool RendererES3::init() {
     ALOGV("Using OpenGL ES 3.0 renderer");
 
     src = new Texture(256, 256, 3);
-    dst = new Texture(256, 256, 4);
+    dst_blitframebuffer = new Texture(256, 256, 3);
+    dst_copytexsubimage = new Texture(256, 256, 3);
+    dst_renderbuffer_copytexsubimage = new Texture(256, 256, 3);
 
     upload_rgb_layers(src);
-    blit_layers(src, dst);
+    blit_src_to_dst(src, dst_blitframebuffer);
+    bind_src_then_copytexsubimage(src, dst_copytexsubimage);
+    blit_src_to_renderbuffer_then_copytexsubimage(src, dst_renderbuffer_copytexsubimage);
 
     return true;
 }
@@ -146,23 +190,20 @@ RendererES3::~RendererES3() {
 
 }
 
+void draw_layers(Texture* tex, int y) {
+  for (int i = 0; i < tex->fbos.size(); i++) {
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, tex->fbos[i]);
+    glBlitFramebuffer(0, 0, tex->width, tex->height,
+                      i * tex->width, y, (i + 1) * tex->width, y + tex->height,
+                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
+  }
+}
+
 void RendererES3::draw() {
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
-    int y = 0;
-    
-    for (int i = 0; i < src->fbos.size(); i++) {
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, src->fbos[i]);
-      glBlitFramebuffer(0, 0, src->width, src->height,
-                        i * src->width, y, (i + 1) * src->width, y + src->height,
-                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
-    y += src->height;
-
-    for (int i = 0; i < dst->fbos.size(); i++) {
-      glBindFramebuffer(GL_READ_FRAMEBUFFER, dst->fbos[i]);
-      glBlitFramebuffer(0, 0, dst->width, dst->height,
-                        i * dst->width, y, (i + 1) * dst->width, y + dst->height,
-                        GL_COLOR_BUFFER_BIT, GL_NEAREST);
-    }
+    draw_layers(src, 0);
+    draw_layers(dst_blitframebuffer, 256);
+    draw_layers(dst_copytexsubimage, 512);
+    draw_layers(dst_renderbuffer_copytexsubimage, 768);
 }
